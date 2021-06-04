@@ -1,13 +1,15 @@
 # import jsonpickle
+import pickle
 import base64
 import io
-
+import sys
 import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL.Image import Image
 from flask import Flask, request, Response, send_file
+from pixellib.tune_bg import alter_bg
 
 from data.base_dataset import *
 from models.afwm import AFWM
@@ -30,10 +32,14 @@ load_checkpoint(gen_model, opt.gen_checkpoint)
 app = Flask(__name__)
 
 
-def encoded_image_bytes_to_tensor(image_bytes_base64, is_edge=False):
+def encoded_image_bytes_to_tensor(image_bytes_base64, is_edge=False, is_input=False):
     image_bytes = base64.decodebytes(image_bytes_base64)
     image_array = np.frombuffer(image_bytes, np.uint8)
     image = cv2.imdecode(image_array, flags=cv2.IMREAD_COLOR)
+    if is_input:
+        change_bg = alter_bg(model_type="pb")
+        change_bg.load_pascalvoc_model("xception_pascalvoc.pb")
+        image = change_bg.color_frame(image, colors=(255, 255, 255), detect="person")
     image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).convert('RGB' if not is_edge else 'L')
     params = get_params(opt, image.size)
     transform = get_transform(opt, params) if not is_edge else get_transform(opt, params, method=Image.NEAREST,
@@ -43,9 +49,10 @@ def encoded_image_bytes_to_tensor(image_bytes_base64, is_edge=False):
 
 # route http posts to this method
 @app.route('/upload-image', methods=['POST'])
-def test():
+def upload_image():
+    # pickle.dump(request.values, open('request.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
     real_image = None if 'image' not in request.values else encoded_image_bytes_to_tensor(
-        request.values['image'].encode())
+        request.values['image'].encode(), is_input=True)
     clothes = None if 'cloth' not in request.values else encoded_image_bytes_to_tensor(
         request.values['cloth'].encode())
     edge = None if 'edge' not in request.values else encoded_image_bytes_to_tensor(
@@ -73,4 +80,4 @@ def test():
 
 
 # start flask app
-app.run(host="0.0.0.0", port=5000)
+app.run(host="0.0.0.0", port=5000, threaded=True)

@@ -1,16 +1,19 @@
-import os
 import time
 
-import cv2
+import imutils
+from PIL.Image import Image
+from skimage.filters import threshold_local
+
+from options.test_options import TestOptions
+from data.data_loader_test import CreateDataLoader
+from models.networks import ResUnetGenerator, load_checkpoint
+from models.afwm import AFWM
+import torch.nn as nn
+import os, sys
 import numpy as np
 import torch
-import torch.nn as nn
+import cv2
 import torch.nn.functional as F
-
-from data.data_loader_test import CreateDataLoader
-from models.afwm import AFWM
-from models.networks import ResUnetGenerator, load_checkpoint
-from options.test_options import TestOptions
 
 opt = TestOptions().parse()
 
@@ -50,18 +53,12 @@ for epoch in range(1, 2):
         edge = data['edge']
         edge = torch.FloatTensor((edge.detach().numpy() > 0.5).astype(np.int))
         clothes = clothes * edge
-        # if i == 0:
-        #     script = torch.jit.trace(warp_model, (real_image.cuda(), clothes.cuda()))
-        #     script.save('warp_mobile.pt')
-        #     try:
-        #         pass
-        #     except Exception as e:
-        #         print(e)
+
         flow_out = warp_model(real_image.cuda(), clothes.cuda())
         warped_cloth, last_flow, = flow_out
         warped_edge = F.grid_sample(edge.cuda(), last_flow.permute(0, 2, 3, 1),
                                     mode='bilinear', padding_mode='zeros')
-        print(warped_edge.shape)
+
         gen_inputs = torch.cat([real_image.cuda(), warped_cloth, warped_edge], 1)
         gen_outputs = gen_model(gen_inputs)
         p_rendered, m_composite = torch.split(gen_outputs, [3, 1], 1)
@@ -80,15 +77,9 @@ for epoch in range(1, 2):
             b = clothes.cuda()
             c = p_tryon
             combine = torch.cat([a[0], b[0], c[0]], 2).squeeze()
-            if i == 0:
-                needed = (p_tryon.squeeze().permute(1, 2, 0).detach().cpu().numpy() + 1) / 2
-                needed = (needed * 255).astype(np.uint8)
-                needed = cv2.cvtColor(needed, cv2.COLOR_RGB2BGR)
-                cv2.imwrite(sub_path + '/needed.jpg', needed)
             cv_img = (combine.permute(1, 2, 0).detach().cpu().numpy() + 1) / 2
             rgb = (cv_img * 255).astype(np.uint8)
             bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-
             cv2.imwrite(sub_path + '/' + str(step) + '.jpg', bgr)
 
         step += 1
