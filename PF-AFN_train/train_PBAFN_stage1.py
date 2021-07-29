@@ -77,7 +77,6 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     train_sampler.set_epoch(epoch)
 
     for i, data in enumerate(train_loader):
-        print(i)
         iter_start_time = time.time()
 
         total_steps += 1
